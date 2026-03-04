@@ -99,7 +99,15 @@ def display_ranking(results: list[CompatibilityResult], *, has_gpu: bool = True)
         quant = r.gguf_variant.quant_type if r.gguf_variant else "FP16"
         vram_str = _format_bytes(r.vram_required_bytes)
         speed_str = f"{r.estimated_tok_per_sec:.1f} tok/s" if r.estimated_tok_per_sec else "N/A"
-        score_str = f"{r.quality_score:.1f}"
+
+        # Score with benchmark status indicator
+        score_val = f"{r.quality_score:.1f}"
+        if r.benchmark_status == "none":
+            score_str = f"{score_val} [yellow]?[/yellow]"
+        elif r.benchmark_status == "estimated":
+            score_str = f"{score_val} [yellow]~[/yellow]"
+        else:
+            score_str = score_val
 
         fit_style = {
             "full_gpu": "[green]Full GPU[/]",
@@ -127,6 +135,17 @@ def display_ranking(results: list[CompatibilityResult], *, has_gpu: bool = True)
         )
 
     console.print(table)
+
+    # Score legend
+    has_estimated = any(r.benchmark_status == "estimated" for r in results)
+    has_none = any(r.benchmark_status == "none" for r in results)
+    if has_estimated or has_none:
+        parts = []
+        if has_estimated:
+            parts.append("[yellow]~[/yellow] = no direct benchmark yet")
+        if has_none:
+            parts.append("[yellow]?[/yellow] = no benchmark data")
+        console.print(f"  [dim]Score:[/dim]  {',  '.join(parts)}")
 
     # Show warnings for top results
     for i, r in enumerate(results[:3], 1):
@@ -165,6 +184,7 @@ def display_json(results: list[CompatibilityResult], hardware: HardwareInfo) -> 
                 "vram_required_bytes": r.vram_required_bytes,
                 "estimated_tok_per_sec": r.estimated_tok_per_sec,
                 "quality_score": round(r.quality_score, 2),
+                "benchmark_status": r.benchmark_status,
                 "fit_type": r.fit_type,
                 "can_run": r.can_run,
                 "warnings": r.warnings,
