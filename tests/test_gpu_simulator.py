@@ -2,8 +2,8 @@
 
 import pytest
 
-from whatllm.constants import _GiB
-from whatllm.hardware.gpu_simulator import create_synthetic_gpu
+from whichllm.constants import _GiB
+from whichllm.hardware.gpu_simulator import create_synthetic_gpu
 
 
 class TestKnownGPULookup:

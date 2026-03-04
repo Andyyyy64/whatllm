@@ -8,8 +8,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from whatllm.engine.types import CompatibilityResult
-from whatllm.hardware.types import HardwareInfo
+from whichllm.engine.types import CompatibilityResult
+from whichllm.hardware.types import HardwareInfo
 
 console = Console()
 

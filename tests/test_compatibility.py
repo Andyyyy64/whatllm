@@ -1,8 +1,8 @@
 """Tests for compatibility checking."""
 
-from whatllm.engine.compatibility import check_compatibility
-from whatllm.hardware.types import GPUInfo, HardwareInfo
-from whatllm.models.types import GGUFVariant, ModelInfo
+from whichllm.engine.compatibility import check_compatibility
+from whichllm.hardware.types import GPUInfo, HardwareInfo
+from whichllm.models.types import GGUFVariant, ModelInfo
 
 
 def _make_model(params: int = 7_000_000_000) -> ModelInfo:

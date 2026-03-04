@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from whatllm.hardware.types import GPUInfo
-from whatllm.models.types import GGUFVariant, ModelInfo
+from whichllm.hardware.types import GPUInfo
+from whichllm.models.types import GGUFVariant, ModelInfo
 
 
 def estimate_tok_per_sec(

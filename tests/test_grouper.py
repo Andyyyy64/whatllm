@@ -1,7 +1,7 @@
 """Tests for model grouping logic."""
 
-from whatllm.models.grouper import group_models
-from whatllm.models.types import ModelInfo
+from whichllm.models.grouper import group_models
+from whichllm.models.types import ModelInfo
 
 
 def _make_model(id: str, base_model: str | None = None, downloads: int = 100) -> ModelInfo:

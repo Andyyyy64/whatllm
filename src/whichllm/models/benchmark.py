@@ -13,7 +13,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = Path.home() / ".cache" / "whatllm"
+CACHE_DIR = Path.home() / ".cache" / "whichllm"
 BENCHMARK_CACHE = CACHE_DIR / "benchmark.json"
 DEFAULT_TTL_SECONDS = 24 * 3600  # 24 hours
 

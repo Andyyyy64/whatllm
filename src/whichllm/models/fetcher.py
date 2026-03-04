@@ -7,8 +7,8 @@ import re
 
 import httpx
 
-from whatllm.constants import QUANT_BYTES_PER_WEIGHT
-from whatllm.models.types import GGUFVariant, ModelInfo
+from whichllm.constants import QUANT_BYTES_PER_WEIGHT
+from whichllm.models.types import GGUFVariant, ModelInfo
 
 logger = logging.getLogger(__name__)
 

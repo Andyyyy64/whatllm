@@ -1,4 +1,4 @@
-# whatllm
+# whichllm
 
 **Find the best local LLM that actually runs on your hardware.**
 
@@ -7,7 +7,7 @@ Auto-detects your GPU/CPU/RAM and ranks the top models from HuggingFace that fit
 [日本語版はこちら](docs/README.ja.md)
 
 ```
-$ whatllm
+$ whichllm
 
 ╭─────────────── Hardware Info ───────────────╮
 │ GPU 0: NVIDIA GeForce RTX 4060 — 8.0 GB    │
@@ -27,19 +27,19 @@ $ whatllm
 ### pipx (recommended)
 
 ```bash
-pipx install whatllm
+pipx install whichllm
 ```
 
 ### pip
 
 ```bash
-pip install whatllm
+pip install whichllm
 ```
 
 ### With NVIDIA GPU detection
 
 ```bash
-pipx install "whatllm[nvidia]"
+pipx install "whichllm[nvidia]"
 ```
 
 ### Development
@@ -48,35 +48,35 @@ pipx install "whatllm[nvidia]"
 git clone https://github.com/yourname/local-llm-checker.git
 cd local-llm-checker
 uv sync --dev
-uv run whatllm
+uv run whichllm
 ```
 
 ## Usage
 
 ```bash
 # Auto-detect hardware and show best models
-whatllm
+whichllm
 
 # Simulate a GPU (e.g. planning a purchase)
-whatllm --gpu "RTX 4090"
-whatllm --gpu "RTX 5090"
+whichllm --gpu "RTX 4090"
+whichllm --gpu "RTX 5090"
 
 # CPU-only mode
-whatllm --cpu-only
+whichllm --cpu-only
 
 # More results / filters
-whatllm --top 20
-whatllm --quant Q4_K_M
-whatllm --min-speed 30
+whichllm --top 20
+whichllm --quant Q4_K_M
+whichllm --min-speed 30
 
 # JSON output
-whatllm --json
+whichllm --json
 
 # Force refresh (ignore cache)
-whatllm --refresh
+whichllm --refresh
 
 # Show hardware info only
-whatllm hardware
+whichllm hardware
 ```
 
 ## Scoring
@@ -101,7 +101,7 @@ Score markers:
 
 1. Fetches ~900 popular models from **HuggingFace API** (text-generation, GGUF, multimodal)
 2. Fetches benchmark scores from **Chatbot Arena ELO** and **Open LLM Leaderboard**, normalized to 0-100
-3. All data cached for 24 hours at `~/.cache/whatllm/`
+3. All data cached for 24 hours at `~/.cache/whichllm/`
 
 ### Ranking engine
 
@@ -115,7 +115,7 @@ Score markers:
 ### Project structure
 
 ```
-src/whatllm/
+src/whichllm/
 ├── cli.py              # Typer CLI entry point
 ├── constants.py        # GPU bandwidth tables, quantization constants
 ├── hardware/           # Hardware detection (NVIDIA, AMD, Apple, CPU, RAM)

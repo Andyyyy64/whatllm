@@ -1,5 +1,5 @@
 [project]
-name = "whatllm"
+name = "whichllm"
 version = "0.1.0"
 description = "Find the best LLM that runs on your hardware"
 requires-python = ">=3.11"
@@ -15,14 +15,14 @@ dependencies = [
 nvidia = ["nvidia-ml-py>=12.0"]
 
 [project.scripts]
-whatllm = "whatllm.cli:app"
+whichllm = "whichllm.cli:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/whatllm"]
+packages = ["src/whichllm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

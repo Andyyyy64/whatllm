@@ -1,7 +1,7 @@
 """Tests for VRAM estimation."""
 
-from whatllm.engine.vram import estimate_kv_cache, estimate_vram
-from whatllm.models.types import GGUFVariant, ModelInfo
+from whichllm.engine.vram import estimate_kv_cache, estimate_vram
+from whichllm.models.types import GGUFVariant, ModelInfo
 
 
 def _make_model(params: int, **kwargs) -> ModelInfo:

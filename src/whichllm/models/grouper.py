@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from whatllm.models.types import ModelFamily, ModelInfo
+from whichllm.models.types import ModelFamily, ModelInfo
 
 
 def _normalize_name(model_id: str) -> str:
