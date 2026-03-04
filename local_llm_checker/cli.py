@@ -9,6 +9,8 @@ from typing import Optional
 import typer
 from rich.console import Console
 
+from local_llm_checker.hardware.types import HardwareInfo
+
 app = typer.Typer(
     name="llm-checker",
     help="Find the best LLM that runs on your hardware.",
@@ -23,6 +25,35 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
+def _validate_gpu_flags(
+    cpu_only: bool, gpu: str | None, vram: float | None,
+) -> None:
+    """Validate mutual exclusivity of GPU-related flags."""
+    if cpu_only and gpu:
+        console.print("[red]Error:[/] --cpu-only and --gpu are mutually exclusive.")
+        raise typer.Exit(code=1)
+    if vram is not None and not gpu:
+        console.print("[red]Error:[/] --vram requires --gpu.")
+        raise typer.Exit(code=1)
+
+
+def _apply_gpu_overrides(
+    hardware: HardwareInfo, cpu_only: bool, gpu: str | None, vram: float | None,
+) -> HardwareInfo:
+    """Replace hardware.gpus based on CLI flags."""
+    if cpu_only:
+        hardware.gpus = []
+    elif gpu:
+        from local_llm_checker.hardware.gpu_simulator import create_synthetic_gpu
+
+        try:
+            hardware.gpus = [create_synthetic_gpu(gpu, vram)]
+        except ValueError as e:
+            console.print(f"[red]Error:[/] {e}")
+            raise typer.Exit(code=1)
+    return hardware
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -32,10 +63,15 @@ def main(
     quant: Optional[str] = typer.Option(None, "--quant", "-q", help="Filter by quantization type (e.g. Q4_K_M)"),
     min_speed: Optional[float] = typer.Option(None, "--min-speed", help="Minimum tok/s filter"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    cpu_only: bool = typer.Option(False, "--cpu-only", help="Ignore GPU and run in CPU-only mode"),
+    gpu: Optional[str] = typer.Option(None, "--gpu", help="Simulate a GPU (e.g. 'RTX 4090')"),
+    vram: Optional[float] = typer.Option(None, "--vram", help="Override VRAM in GB (requires --gpu)"),
 ):
     """Detect hardware and recommend the best local LLMs."""
     if ctx.invoked_subcommand is not None:
         return
+
+    _validate_gpu_flags(cpu_only, gpu, vram)
 
     from rich.progress import Progress, SpinnerColumn, TextColumn
 
@@ -55,6 +91,7 @@ def main(
         # Step 1: Detect hardware
         task = progress.add_task("Detecting hardware...", total=None)
         hardware = detect_hardware()
+        _apply_gpu_overrides(hardware, cpu_only, gpu, vram)
         progress.update(task, description="Hardware detected")
 
         # Step 2: Fetch models
@@ -104,8 +141,14 @@ def main(
 
 
 @app.command()
-def hardware():
+def hardware(
+    cpu_only: bool = typer.Option(False, "--cpu-only", help="Ignore GPU and run in CPU-only mode"),
+    gpu: Optional[str] = typer.Option(None, "--gpu", help="Simulate a GPU (e.g. 'RTX 4090')"),
+    vram: Optional[float] = typer.Option(None, "--vram", help="Override VRAM in GB (requires --gpu)"),
+):
     """Show detected hardware information only."""
+    _validate_gpu_flags(cpu_only, gpu, vram)
+
     from rich.progress import Progress, SpinnerColumn, TextColumn
 
     from local_llm_checker.hardware.detector import detect_hardware
@@ -119,6 +162,7 @@ def hardware():
     ) as progress:
         task = progress.add_task("Detecting hardware...", total=None)
         hw = detect_hardware()
+        _apply_gpu_overrides(hw, cpu_only, gpu, vram)
         progress.remove_task(task)
 
     console.print()
