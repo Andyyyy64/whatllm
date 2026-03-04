@@ -16,3 +16,4 @@ class CompatibilityResult:
     warnings: list[str] = field(default_factory=list)
     quality_score: float = 0.0  # 0-100 for ranking
     fit_type: str = "full_gpu"  # "full_gpu" | "partial_offload" | "cpu_only"
+    benchmark_status: str = "none"  # "direct" | "estimated" | "none"

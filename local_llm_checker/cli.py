@@ -77,6 +77,11 @@ def main(
 
     from local_llm_checker.engine.ranker import rank_models
     from local_llm_checker.hardware.detector import detect_hardware
+    from local_llm_checker.models.benchmark import (
+        fetch_benchmark_scores,
+        load_benchmark_cache,
+        save_benchmark_cache,
+    )
     from local_llm_checker.models.cache import load_cache, save_cache
     from local_llm_checker.models.fetcher import dicts_to_models, fetch_models, models_to_dicts
     from local_llm_checker.models.grouper import group_models
@@ -110,7 +115,19 @@ def main(
                 console.print(f"[red]Error fetching models:[/] {e}")
                 sys.exit(1)
 
-        # Step 3: Group and rank
+        # Step 3: Fetch benchmark scores
+        progress.update(task, description="Loading benchmark data...")
+        bench_scores = None if refresh else load_benchmark_cache()
+        if bench_scores is None:
+            try:
+                progress.update(task, description="Fetching benchmark scores...")
+                bench_scores = fetch_benchmark_scores()
+                save_benchmark_cache(bench_scores)
+            except Exception as e:
+                console.print(f"[yellow]Warning:[/] Benchmark data unavailable: {e}")
+                bench_scores = {}
+
+        # Step 4: Group and rank
         progress.update(task, description="Ranking models...")
         families = group_models(models)
 
@@ -127,6 +144,7 @@ def main(
             top_n=top,
             quant_filter=quant,
             min_speed=min_speed,
+            benchmark_scores=bench_scores,
         )
 
     # Display results
