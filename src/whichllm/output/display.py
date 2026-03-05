@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
+from math import log10
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from whichllm.engine.quantization import effective_quant_type, estimate_weight_bytes
 from whichllm.engine.types import CompatibilityResult
@@ -32,6 +35,69 @@ def _format_params(count: int) -> str:
     elif count >= 1e6:
         return f"{count / 1e6:.0f}M"
     return str(count)
+
+
+def _format_downloads(downloads: int) -> str:
+    """Format download count for compact table display."""
+    if downloads >= 1_000_000:
+        return f"{downloads / 1_000_000:.1f}M"
+    if downloads >= 1_000:
+        return f"{downloads / 1_000:.1f}K"
+    return str(downloads)
+
+
+def _format_published_at(value: str | None) -> str:
+    """Format published datetime into YYYY-MM-DD."""
+    if not value:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d")
+    except ValueError:
+        return value[:10] if len(value) >= 10 else value
+
+
+def _parse_published_at(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _lerp_channel(a: int, b: int, t: float) -> int:
+    return int(a + (b - a) * t)
+
+
+def _blend_hex(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> str:
+    t = max(0.0, min(1.0, t))
+    r = _lerp_channel(a[0], b[0], t)
+    g = _lerp_channel(a[1], b[1], t)
+    bch = _lerp_channel(a[2], b[2], t)
+    return f"#{r:02x}{g:02x}{bch:02x}"
+
+
+def _downloads_style(downloads: int, min_log: float, max_log: float) -> str:
+    if downloads <= 0:
+        return "grey50"
+    dlog = log10(max(downloads, 1))
+    span = max(max_log - min_log, 1e-6)
+    t = (dlog - min_log) / span
+    return _blend_hex((145, 80, 80), (55, 190, 120), t)
+
+
+def _published_style(
+    published: datetime | None,
+    oldest_ts: float | None,
+    newest_ts: float | None,
+) -> str:
+    if published is None or oldest_ts is None or newest_ts is None:
+        return "grey50"
+    pts = published.timestamp()
+    span = max(newest_ts - oldest_ts, 1e-6)
+    t = (pts - oldest_ts) / span
+    return _blend_hex((190, 85, 85), (80, 190, 110), t)
 
 
 def _detect_specializations(model_id: str) -> list[str]:
@@ -127,7 +193,12 @@ def display_hardware(hw: HardwareInfo) -> None:
     console.print(panel)
 
 
-def display_ranking(results: list[CompatibilityResult], *, has_gpu: bool = True) -> None:
+def display_ranking(
+    results: list[CompatibilityResult],
+    *,
+    has_gpu: bool = True,
+    show_status: bool = False,
+) -> None:
     """Display ranked model table."""
     if not results:
         console.print("[yellow]No compatible models found for your hardware.[/]")
@@ -135,16 +206,28 @@ def display_ranking(results: list[CompatibilityResult], *, has_gpu: bool = True)
 
     mem_label = "VRAM" if has_gpu else "RAM"
 
-    table = Table(title="Recommended Models", show_lines=True, expand=True)
+    table = Table(title="Recommended Models", show_lines=True)
     table.add_column("#", style="bold", width=3, justify="right")
-    table.add_column("Model", style="cyan", min_width=18, overflow="fold")
-    table.add_column("Params", justify="right", width=7)
-    table.add_column("Quant", justify="center", width=7)
-    table.add_column(mem_label, justify="right", width=9)
-    table.add_column("Speed", justify="right", width=9)
-    table.add_column("Score", justify="right", width=6)
-    table.add_column("Fit", justify="center", width=8)
-    table.add_column("License", width=10)
+    table.add_column("Model", style="cyan", min_width=14, overflow="fold")
+    table.add_column("Params", justify="right", width=6)
+    table.add_column("Quant", justify="center", width=6)
+    if show_status:
+        table.add_column(mem_label, justify="right", width=8)
+        table.add_column("Speed", justify="right", width=8)
+        table.add_column("Fit", justify="center", width=7)
+    else:
+        table.add_column("Published", justify="center", width=10)
+        table.add_column("Downloads", justify="right", width=9)
+    table.add_column("Score", justify="right", width=5)
+    table.add_column("License", width=8)
+
+    download_logs = [log10(max(r.model.downloads, 1)) for r in results if r.model.downloads > 0]
+    min_download_log = min(download_logs) if download_logs else 0.0
+    max_download_log = max(download_logs) if download_logs else 1.0
+    published_dates = [_parse_published_at(r.model.published_at) for r in results]
+    published_valid = [d for d in published_dates if d is not None]
+    oldest_ts = min((d.timestamp() for d in published_valid), default=None)
+    newest_ts = max((d.timestamp() for d in published_valid), default=None)
 
     for i, r in enumerate(results, 1):
         quant = effective_quant_type(r.model, r.gguf_variant)
@@ -166,6 +249,15 @@ def display_ranking(results: list[CompatibilityResult], *, has_gpu: bool = True)
             "cpu_only": "[red]CPU only[/]",
         }
         fit_str = fit_style.get(r.fit_type, r.fit_type)
+        published_dt = _parse_published_at(r.model.published_at)
+        published_str = Text(
+            _format_published_at(r.model.published_at),
+            style=_published_style(published_dt, oldest_ts, newest_ts),
+        )
+        downloads_str = Text(
+            _format_downloads(r.model.downloads),
+            style=_downloads_style(r.model.downloads, min_download_log, max_download_log),
+        )
 
         params_str = _format_params(r.model.parameter_count)
         if r.model.is_moe and r.model.parameter_count_active:
@@ -173,26 +265,21 @@ def display_ranking(results: list[CompatibilityResult], *, has_gpu: bool = True)
 
         license_str = r.model.license or "—"
 
-        model_link = r.model.id
+        model_link = Text(r.model.id, style="cyan")
+        model_link.stylize(f"link https://huggingface.co/{r.model.id}")
 
-        row_style = ""
-        if r.benchmark_status == "estimated":
-            row_style = "yellow"
-        elif r.benchmark_status == "none":
-            row_style = "red"
-
-        table.add_row(
+        row_cells = [
             str(i),
             model_link,
             params_str,
             quant,
-            vram_str,
-            speed_str,
-            score_str,
-            fit_str,
-            license_str,
-            style=row_style,
-        )
+        ]
+        if show_status:
+            row_cells.extend([vram_str, speed_str, fit_str])
+        else:
+            row_cells.extend([published_str, downloads_str])
+        row_cells.extend([score_str, license_str])
+        table.add_row(*row_cells)
 
     console.print(table)
 
@@ -279,6 +366,8 @@ def display_json(results: list[CompatibilityResult], hardware: HardwareInfo) -> 
                 "rank": i,
                 "model_id": r.model.id,
                 "parameter_count": r.model.parameter_count,
+                "published_at": r.model.published_at,
+                "downloads": r.model.downloads,
                 "quant_type": effective_quant_type(r.model, r.gguf_variant),
                 "file_size_bytes": (
                     r.gguf_variant.file_size_bytes
