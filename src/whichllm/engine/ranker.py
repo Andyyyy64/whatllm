@@ -11,7 +11,12 @@ from whichllm.engine.performance import estimate_tok_per_sec
 from whichllm.engine.quantization import effective_quant_type, quant_quality_penalty
 from whichllm.engine.types import CompatibilityResult
 from whichllm.hardware.types import HardwareInfo
-from whichllm.models.benchmark import build_score_index, lookup_benchmark
+from whichllm.models.benchmark import (
+    BenchmarkEvidence,
+    build_line_bucket_index,
+    build_score_index,
+    lookup_benchmark_evidence,
+)
 from whichllm.models.types import GGUFVariant, ModelInfo
 
 
@@ -286,8 +291,10 @@ def rank_models(
     # Build benchmark indices once (case-insensitive + model line)
     if benchmark_scores:
         bench_ci_index, bench_line_index = build_score_index(benchmark_scores)
+        bench_line_buckets = build_line_bucket_index(benchmark_scores)
     else:
         bench_ci_index, bench_line_index = {}, {}
+        bench_line_buckets = {}
 
     best_gpu = None
     for gpu in hardware.gpus:
@@ -305,12 +312,16 @@ def rank_models(
             continue
 
         fid = model.family_id
-        bench_avg = None
-        bench_is_direct = False
+        bench_evidence = BenchmarkEvidence(score=None, confidence=0.0, source="none")
         if benchmark_scores:
-            bench_result = lookup_benchmark(model.id, model.base_model, benchmark_scores, bench_ci_index, bench_line_index)
-            if bench_result is not None:
-                bench_avg, bench_is_direct = bench_result
+            bench_evidence = lookup_benchmark_evidence(
+                model.id,
+                model.base_model,
+                benchmark_scores,
+                ci_index=bench_ci_index,
+                line_index=bench_line_index,
+                line_bucket_index=bench_line_buckets,
+            )
 
         # 各variantを評価し、そのモデルで最もスコアが高いものを採用する
         best_for_model: CompatibilityResult | None = None
@@ -325,6 +336,17 @@ def rank_models(
             if min_speed is not None and tok_per_sec < min_speed:
                 continue
 
+            bench_avg = None
+            bench_is_direct = False
+            if bench_evidence.score is not None:
+                bench_is_direct = bench_evidence.source == "direct"
+                if bench_is_direct:
+                    bench_avg = bench_evidence.score
+                else:
+                    # 推定根拠が弱いほどベンチ寄与を下げる（line継承の過大評価を抑制）
+                    confidence = max(0.0, min(1.0, bench_evidence.confidence))
+                    bench_avg = bench_evidence.score * (0.75 + 0.25 * confidence)
+
             compat.estimated_tok_per_sec = tok_per_sec
             compat.quality_score = _compute_quality_score(
                 model,
@@ -336,8 +358,8 @@ def rank_models(
                 benchmark_avg=bench_avg,
                 benchmark_is_direct=bench_is_direct,
             )
-            if bench_avg is not None:
-                compat.benchmark_status = "direct" if bench_is_direct else "estimated"
+            if bench_evidence.score is not None:
+                compat.benchmark_status = "direct" if bench_evidence.source == "direct" else "estimated"
             else:
                 compat.benchmark_status = "none"
 

@@ -125,6 +125,21 @@ def _fill_missing_published_at(
     return updated
 
 
+def _merge_model_eval_benchmarks(
+    models: list,
+    benchmark_scores: dict[str, float],
+) -> tuple[dict[str, float], int]:
+    """モデル由来の評価値でベンチ辞書を不足分だけ補完する。"""
+    merged = dict(benchmark_scores)
+    injected = 0
+    for model in models:
+        score = model.benchmark_scores.get("hf_eval")
+        if isinstance(score, (int, float)) and score > 0 and model.id not in merged:
+            merged[model.id] = float(score)
+            injected += 1
+    return merged, injected
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -235,6 +250,9 @@ def main(
         for family in families:
             all_models.append(family.base_model)
             all_models.extend(family.variants)
+
+        # Arena/Leaderboardに存在しないモデルのみ、HF evalResults を direct 補完として利用する。
+        bench_scores, _ = _merge_model_eval_benchmarks(all_models, bench_scores)
 
         # general用途はGPUクラスに応じた自動しきい値で小さすぎるモデルを抑制する
         auto_min_params = (

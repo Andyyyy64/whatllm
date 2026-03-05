@@ -5,6 +5,7 @@ from whichllm.cli import (
     _current_version,
     _fill_missing_published_at,
     _include_vision_candidates,
+    _merge_model_eval_benchmarks,
     app,
 )
 from whichllm.engine.types import CompatibilityResult
@@ -79,3 +80,31 @@ def test_version_option_prints_version_and_exits():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     assert _current_version() in result.stdout
+
+
+def test_merge_model_eval_benchmarks_injects_only_missing_ids():
+    model_direct_missing = ModelInfo(
+        id="meta-llama/Llama-3.1-8B-Instruct",
+        family_id="llama-3.1-8b",
+        name="Llama-3.1-8B-Instruct",
+        parameter_count=8_000_000_000,
+        downloads=1,
+        likes=1,
+        benchmark_scores={"hf_eval": 66.4},
+    )
+    model_already_present = ModelInfo(
+        id="Qwen/Qwen2.5-7B-Instruct",
+        family_id="qwen2.5-7b",
+        name="Qwen2.5-7B-Instruct",
+        parameter_count=7_000_000_000,
+        downloads=1,
+        likes=1,
+        benchmark_scores={"hf_eval": 70.0},
+    )
+    merged, injected = _merge_model_eval_benchmarks(
+        [model_direct_missing, model_already_present],
+        {"Qwen/Qwen2.5-7B-Instruct": 71.2},
+    )
+    assert injected == 1
+    assert merged["meta-llama/Llama-3.1-8B-Instruct"] == 66.4
+    assert merged["Qwen/Qwen2.5-7B-Instruct"] == 71.2
