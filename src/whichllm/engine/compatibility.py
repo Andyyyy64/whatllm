@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from whichllm.constants import MIN_COMPUTE_CAPABILITY_OLLAMA
+from whichllm.engine.quantization import estimate_weight_bytes
 from whichllm.engine.types import CompatibilityResult
 from whichllm.engine.vram import estimate_vram
 from whichllm.hardware.types import GPUInfo, HardwareInfo
@@ -76,7 +77,7 @@ def check_compatibility(
         warnings.append(f"Large context ({context_length}) increases VRAM usage significantly")
 
     # File size vs disk space
-    file_size = variant.file_size_bytes if variant else model.parameter_count * 2
+    file_size = estimate_weight_bytes(model, variant)
     if hardware.disk_free_bytes > 0 and file_size > hardware.disk_free_bytes:
         warnings.append("Insufficient disk space to download this model")
         can_run = False

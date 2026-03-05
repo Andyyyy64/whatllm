@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from whichllm.hardware.types import GPUInfo
+from whichllm.engine.quantization import estimate_weight_bytes
 from whichllm.models.types import GGUFVariant, ModelInfo
 
 
@@ -21,7 +22,7 @@ def estimate_tok_per_sec(
         # Rough: ~1-3 tok/s for 7B on modern CPU
         return max(0.5, 20.0 / params_b)
 
-    model_size = variant.file_size_bytes if variant else model.parameter_count * 2
+    model_size = estimate_weight_bytes(model, variant)
 
     # MoE: only active params need to be read per token
     if model.is_moe and model.parameter_count_active:

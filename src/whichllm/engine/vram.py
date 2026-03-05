@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from whichllm.constants import FRAMEWORK_OVERHEAD_BYTES
+from whichllm.engine.quantization import estimate_weight_bytes
 from whichllm.models.types import GGUFVariant, ModelInfo
 
 
@@ -28,10 +29,7 @@ def estimate_vram(
 ) -> int:
     """Estimate total VRAM required to run a model."""
     # Model weights
-    if variant:
-        weights = variant.file_size_bytes
-    else:
-        weights = model.parameter_count * 2  # FP16 fallback
+    weights = estimate_weight_bytes(model, variant)
 
     # KV cache
     kv_cache = estimate_kv_cache(model, context_length)
