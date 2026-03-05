@@ -82,6 +82,28 @@ def _auto_min_params_for_profile(hardware: HardwareInfo, profile: str) -> float 
     return 7.0
 
 
+def _fill_missing_published_at(
+    all_models: list,
+    results: list,
+    fetch_model_published_at,
+) -> bool:
+    """上位表示で欠けている公開日時を補完し、更新有無を返す。"""
+    missing_ids = [r.model.id for r in results if not r.model.published_at]
+    if not missing_ids:
+        return False
+    published_map = _run_async(fetch_model_published_at(missing_ids))
+    if not published_map:
+        return False
+
+    updated = False
+    for model in all_models:
+        published_at = published_map.get(model.id)
+        if published_at and not model.published_at:
+            model.published_at = published_at
+            updated = True
+    return updated
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -90,6 +112,11 @@ def main(
     context_length: int = typer.Option(4096, "--context-length", "-c", help="Context length for KV cache estimation"),
     quant: Optional[str] = typer.Option(None, "--quant", "-q", help="Filter by quantization type (e.g. Q4_K_M)"),
     min_speed: Optional[float] = typer.Option(None, "--min-speed", help="Minimum tok/s filter"),
+    status: bool = typer.Option(
+        False,
+        "--status",
+        help="Show runtime status columns (Speed/Fit) in ranking table",
+    ),
     min_params: Optional[float] = typer.Option(
         None,
         "--min-params",
@@ -122,7 +149,12 @@ def main(
         save_benchmark_cache,
     )
     from whichllm.models.cache import load_cache, save_cache
-    from whichllm.models.fetcher import dicts_to_models, fetch_models, models_to_dicts
+    from whichllm.models.fetcher import (
+        dicts_to_models,
+        fetch_model_published_at,
+        fetch_models,
+        models_to_dicts,
+    )
     from whichllm.models.grouper import group_models
     from whichllm.output.display import display_hardware, display_json, display_ranking
 
@@ -211,6 +243,14 @@ def main(
                 min_params_b=None,
             )
 
+        # 上位候補の公開日時が欠けている場合のみ補完して表示品質を上げる
+        if results:
+            try:
+                if _fill_missing_published_at(all_models, results, fetch_model_published_at):
+                    save_cache(models_to_dicts(models))
+            except Exception as e:
+                progress.update(task, description=f"Published date backfill skipped: {e}")
+
     # Display results
     if json_output:
         display_json(results, hardware)
@@ -218,7 +258,7 @@ def main(
         console.print()
         display_hardware(hardware)
         console.print()
-        display_ranking(results, has_gpu=bool(hardware.gpus))
+        display_ranking(results, has_gpu=bool(hardware.gpus), show_status=status)
         console.print()
 
 
