@@ -15,6 +15,60 @@ logger = logging.getLogger(__name__)
 HF_API_BASE = "https://huggingface.co/api"
 
 
+def _extract_size_hint_from_id(model_id: str | None) -> int | None:
+    """Extract parameter size hint (in params) from model ID like 27B or 30B-A3B."""
+    if not model_id:
+        return None
+    lower = model_id.lower()
+    matches = re.findall(r"(\d+(?:\.\d+)?)b(?:-a\d+(?:\.\d+)?b)?", lower)
+    if not matches:
+        return None
+    try:
+        max_b = max(float(m) for m in matches)
+    except ValueError:
+        return None
+    if max_b <= 0:
+        return None
+    return int(max_b * 1e9)
+
+
+def _is_quantized_repo_name(model_id: str) -> bool:
+    """Detect quantized/non-base repository naming patterns."""
+    lower = model_id.lower()
+    return bool(
+        re.search(r"(gptq|awq|bnb|4bit|int4|int8|fp8|gguf|quant)", lower)
+    )
+
+
+def _normalize_param_count(
+    extracted: int,
+    model_id: str,
+    base_model: str | None,
+) -> int:
+    """Normalize parameter count when metadata is inconsistent."""
+    if extracted <= 0:
+        return extracted
+
+    hints = [
+        h for h in (
+            _extract_size_hint_from_id(model_id),
+            _extract_size_hint_from_id(base_model),
+        ) if h is not None
+    ]
+    if not hints:
+        return extracted
+
+    hinted = max(hints)
+    if _is_quantized_repo_name(model_id):
+        # 量子化派生モデルはsafetensors metadataが縮んだ値になることがある
+        if extracted < int(hinted * 0.70):
+            return hinted
+    elif extracted < int(hinted * 0.35):
+        return hinted
+
+    return extracted
+
+
 def _extract_quant_type(filename: str) -> str:
     """Extract quantization type from GGUF filename."""
     # Common patterns: model-Q4_K_M.gguf, model.Q4_K_M.gguf
@@ -96,7 +150,16 @@ def _parse_model(data: dict) -> ModelInfo | None:
     config = data.get("config", {}) or {}
     card_data = data.get("cardData", {}) or {}
 
+    # Base model from card data
+    base_model_raw = card_data.get("base_model")
+    base_model = None
+    if isinstance(base_model_raw, str):
+        base_model = base_model_raw
+    elif isinstance(base_model_raw, list) and base_model_raw:
+        base_model = base_model_raw[0]
+
     param_count = _extract_param_count(data)
+    param_count = _normalize_param_count(param_count, model_id, base_model)
     if param_count == 0:
         return None
 
@@ -158,14 +221,6 @@ def _parse_model(data: dict) -> ModelInfo | None:
     # Fallback context length from gguf metadata
     if not context_length and isinstance(gguf_meta, dict):
         context_length = gguf_meta.get("context_length")
-
-    # Base model from card data
-    base_model_raw = card_data.get("base_model")
-    base_model = None
-    if isinstance(base_model_raw, str):
-        base_model = base_model_raw
-    elif isinstance(base_model_raw, list) and base_model_raw:
-        base_model = base_model_raw[0]
 
     return ModelInfo(
         id=model_id,
@@ -310,12 +365,18 @@ def dicts_to_models(data: list[dict]) -> list[ModelInfo]:
     """Deserialize models from cached dicts."""
     models = []
     for d in data:
+        base_model = d.get("base_model")
+        param_count = _normalize_param_count(
+            d["parameter_count"],
+            d["id"],
+            base_model,
+        )
         models.append(
             ModelInfo(
                 id=d["id"],
                 family_id=d.get("family_id", d["id"]),
                 name=d["name"],
-                parameter_count=d["parameter_count"],
+                parameter_count=param_count,
                 parameter_count_active=d.get("parameter_count_active"),
                 architecture=d.get("architecture", ""),
                 is_moe=d.get("is_moe", False),
@@ -332,7 +393,7 @@ def dicts_to_models(data: list[dict]) -> list[ModelInfo]:
                     for v in d.get("gguf_variants", [])
                 ],
                 benchmark_scores=d.get("benchmark_scores", {}),
-                base_model=d.get("base_model"),
+                base_model=base_model,
             )
         )
     return models
