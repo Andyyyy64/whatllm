@@ -1,0 +1,46 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the information below.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this issue?
+      placeholder: |
+        1. Run `whichllm --gpu "RTX 4090"`
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware Info
+      description: Paste the output of `whichllm hardware`
+      render: shell
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      placeholder: "3.11"
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      placeholder: "Ubuntu 24.04 / macOS 15 / Windows 11"
+  - type: input
+    id: version
+    attributes:
+      label: whichllm Version
+      placeholder: "0.3.0"
