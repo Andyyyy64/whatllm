@@ -1,5 +1,10 @@
 # whichllm
 
+[![PyPI version](https://img.shields.io/pypi/v/whichllm)](https://pypi.org/project/whichllm/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://github.com/Andyyyy64/whichllm/actions/workflows/test.yml/badge.svg)](https://github.com/Andyyyy64/whichllm/actions/workflows/test.yml)
+
 **Find the best local LLM that actually runs on your hardware.**
 
 Auto-detects your GPU/CPU/RAM and ranks the top models from HuggingFace that fit your system.
@@ -7,6 +12,28 @@ Auto-detects your GPU/CPU/RAM and ranks the top models from HuggingFace that fit
 [日本語版はこちら](docs/README.ja.md)
 
 ![demo](assets/demo.png)
+
+## Why whichllm?
+
+**One command. Real answers.** No TUI to learn, no keybindings to memorize.
+
+| | whichllm | Others (TUI-based) |
+|---|---|---|
+| **Getting results** | `whichllm` — done | Launch TUI → navigate → search → filter |
+| **Model data** | Live from HuggingFace API | Static built-in database |
+| **Benchmarks** | Real eval scores with confidence | Fixed quality scores |
+| **Scriptable** | `whichllm --json \| jq` | Requires special flags |
+| **Learning curve** | Zero | Vim keybindings required |
+
+## Features
+
+- **Auto-detect hardware** — NVIDIA, AMD, Apple Silicon, CPU-only
+- **Smart ranking** — Scores models by VRAM fit, speed, and benchmark quality
+- **Live data** — Fetches models directly from HuggingFace (cached for performance)
+- **Benchmark-aware** — Integrates real eval scores with confidence-based dampening
+- **Task profiles** — Filter by general, coding, vision, or math use cases
+- **GPU simulation** — Test with any GPU: `whichllm --gpu "RTX 4090"`
+- **JSON output** — Pipe-friendly: `whichllm --json`
 
 ## Install
 
@@ -116,6 +143,10 @@ src/whichllm/
 └── output/
     └── display.py      # Rich table output
 ```
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Requirements
 
