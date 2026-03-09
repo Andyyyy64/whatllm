@@ -2,8 +2,27 @@
 name = "whichllm"
 version = "0.3.0"
 description = "Find the best LLM that runs on your hardware"
+authors = [{name = "Andyyyy64"}]
+readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+homepage = "https://github.com/Andyyyy64/whichllm"
+repository = "https://github.com/Andyyyy64/whichllm"
+keywords = ["llm", "local-llm", "gpu", "vram", "huggingface", "inference", "hardware", "cli", "recommendation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Hardware",
+]
 dependencies = [
     "typer>=0.9",
     "rich>=13.0",
@@ -12,6 +31,12 @@ dependencies = [
     "dbgpu[fuzz]>=1.0",
     "nvidia-ml-py>=12.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Andyyyy64/whichllm"
+Repository = "https://github.com/Andyyyy64/whichllm"
+"Bug Tracker" = "https://github.com/Andyyyy64/whichllm/issues"
+Changelog = "https://github.com/Andyyyy64/whichllm/blob/main/CHANGELOG.md"
 
 [project.scripts]
 whichllm = "whichllm.cli:app"
