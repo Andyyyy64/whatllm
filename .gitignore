@@ -39,3 +39,4 @@ Thumbs.db
 
 # Logs
 *.log
+.claude/
