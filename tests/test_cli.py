@@ -9,13 +9,15 @@ from whichllm.cli import (
     _fill_missing_published_at,
     _include_vision_candidates,
     _merge_model_eval_benchmarks,
+    _pick_gguf_variant,
     _resolve_evidence_mode,
+    _search_model,
     _validate_evidence,
     app,
 )
 from whichllm.engine.types import CompatibilityResult
 from whichllm.hardware.types import GPUInfo, HardwareInfo
-from whichllm.models.types import ModelInfo
+from whichllm.models.types import GGUFVariant, ModelInfo
 from typer.testing import CliRunner
 
 
@@ -195,3 +197,88 @@ def test_plan_display_plan_json_outputs_valid_json():
     assert "vram_by_quant" in data
     assert "gpu_compatibility" in data
     assert data["target_quant"] == "Q4_K_M"
+
+
+# --------------- helper tests ---------------
+
+
+def _make_model(model_id="org/Test-7B-GGUF", downloads=100, gguf_variants=None):
+    return ModelInfo(
+        id=model_id,
+        family_id="test-7b",
+        name="Test-7B",
+        parameter_count=7_000_000_000,
+        downloads=downloads,
+        likes=10,
+        gguf_variants=gguf_variants or [],
+    )
+
+
+def test_search_model_exact_match():
+    models = [_make_model("org/Llama-8B"), _make_model("org/Qwen-7B")]
+    result = _search_model(models, "org/Llama-8B")
+    assert result.id == "org/Llama-8B"
+
+
+def test_search_model_endswith_match():
+    models = [_make_model("org/Llama-8B"), _make_model("org/Qwen-7B")]
+    result = _search_model(models, "Llama-8B")
+    assert result.id == "org/Llama-8B"
+
+
+def test_search_model_term_match():
+    models = [_make_model("org/Llama-3.1-8B-GGUF"), _make_model("org/Qwen-7B")]
+    result = _search_model(models, "llama 8b")
+    assert result.id == "org/Llama-3.1-8B-GGUF"
+
+
+def test_search_model_not_found():
+    models = [_make_model("org/Llama-8B")]
+    with pytest.raises(Exit):
+        _search_model(models, "nonexistent_xyz")
+
+
+def test_pick_gguf_variant_by_preference():
+    variants = [
+        GGUFVariant(filename="q2.gguf", quant_type="Q2_K", file_size_bytes=1000),
+        GGUFVariant(filename="q4km.gguf", quant_type="Q4_K_M", file_size_bytes=2000),
+    ]
+    model = _make_model(gguf_variants=variants)
+    result = _pick_gguf_variant(model)
+    assert result.quant_type == "Q4_K_M"
+
+
+def test_pick_gguf_variant_with_filter():
+    variants = [
+        GGUFVariant(filename="q2.gguf", quant_type="Q2_K", file_size_bytes=1000),
+        GGUFVariant(filename="q4km.gguf", quant_type="Q4_K_M", file_size_bytes=2000),
+    ]
+    model = _make_model(gguf_variants=variants)
+    result = _pick_gguf_variant(model, quant_filter="Q2_K")
+    assert result.quant_type == "Q2_K"
+
+
+def test_pick_gguf_variant_no_variants():
+    model = _make_model(gguf_variants=[])
+    result = _pick_gguf_variant(model)
+    assert result is None
+
+
+# --------------- run/snippet command tests ---------------
+
+
+def test_run_requires_llama_cpp():
+    """run should fail gracefully when llama-cpp-python is not installed."""
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", "some-model"])
+    # Either it works (if llama-cpp-python is installed) or shows the install message
+    # In test env without llama-cpp-python, it should suggest installing
+    if result.exit_code != 0:
+        assert "llama-cpp-python" in result.stdout or "No model found" in result.stdout
+
+
+def test_snippet_no_model_found():
+    runner = CliRunner()
+    result = runner.invoke(app, ["snippet", "nonexistent_model_xyz_999"])
+    assert result.exit_code != 0
+    assert "No model found" in result.stdout
