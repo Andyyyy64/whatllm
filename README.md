@@ -102,6 +102,29 @@ whichllm plan "Qwen2.5-72B" --quant Q8_0
 whichllm plan "mistral 7b" --context-length 32768
 ```
 
+## Integrations
+
+### Ollama
+
+Find the best model and run it directly:
+
+```bash
+# Pick the top model and run it with Ollama
+whichllm --top 1 --json | jq -r '.models[0].model_id' | xargs ollama run
+
+# Find the best coding model
+whichllm --profile coding --top 1 --json | jq -r '.models[0].model_id' | xargs ollama run
+```
+
+### Shell alias
+
+Add to your `.bashrc` / `.zshrc`:
+
+```bash
+alias bestllm='whichllm --top 1 --json | jq -r ".models[0].model_id"'
+# Usage: ollama run $(bestllm)
+```
+
 ## Scoring
 
 Each model gets a score from 0 to 100.

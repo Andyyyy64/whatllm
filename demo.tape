@@ -1,24 +1,38 @@
 # VHS demo recording for whichllm
-# Install vhs: https://github.com/charmbracelet/vhs
+# Install: https://github.com/charmbracelet/vhs
 # Run: vhs demo.tape
-#
-# This will generate assets/demo.gif which can then replace
-# assets/demo.png in README.md if desired.
+# Output: assets/demo.gif
 
 Output assets/demo.gif
 
-Set FontSize 16
+Set FontSize 15
 Set Width 1200
-Set Height 600
+Set Height 700
 Set Theme "Catppuccin Mocha"
 Set Padding 20
+Set TypingSpeed 40ms
 
+# Title
+Type "# whichllm - Find the best LLM for your hardware"
+Enter
+Sleep 1s
+
+# Basic usage with GPU simulation
 Type "whichllm --gpu 'RTX 4090' --top 5"
-Sleep 500ms
+Sleep 300ms
 Enter
-Sleep 5s
+Sleep 4s
 
-Type "whichllm --gpu 'RTX 4090' --top 5 --profile coding"
-Sleep 500ms
+# Plan command - reverse lookup
+Type "whichllm plan 'llama 3 70b' --gpu 'RTX 4090'"
+Sleep 300ms
 Enter
-Sleep 5s
+Sleep 4s
+
+# Profile-based search
+Type "whichllm --gpu 'RTX 4090' --profile coding --top 3"
+Sleep 300ms
+Enter
+Sleep 3s
+
+Sleep 2s
