@@ -11,7 +11,7 @@ Auto-detects your GPU/CPU/RAM and ranks the top models from HuggingFace that fit
 
 [日本語版はこちら](docs/README.ja.md)
 
-![demo](assets/demo.png)
+![demo](assets/demo.gif)
 
 ## Why whichllm?
 
