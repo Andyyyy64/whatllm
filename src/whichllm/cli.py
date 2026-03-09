@@ -405,18 +405,43 @@ def plan(
                 console.print(f"[red]Error fetching models:[/] {e}")
                 sys.exit(1)
 
-    # Search for model
+    model = _search_model(models, model_name)
+
+    target_quant = quant.upper() if quant else "Q4_K_M"
+
+    if json_output:
+        display_plan_json(model, context_length, target_quant)
+    else:
+        console.print()
+        display_plan(model, context_length, target_quant)
+        console.print()
+
+
+def _load_models(refresh: bool, include_vision: bool = True):
+    """Load models from cache or fetch from HuggingFace."""
+    from whichllm.models.cache import load_cache, save_cache
+    from whichllm.models.fetcher import dicts_to_models, fetch_models, models_to_dicts
+
+    cached_data = None if refresh else load_cache()
+    if cached_data is not None:
+        return dicts_to_models(cached_data)
+    try:
+        models = _run_async(fetch_models(include_vision=include_vision))
+        save_cache(models_to_dicts(models))
+        return models
+    except Exception as e:
+        console.print(f"[red]Error fetching models:[/] {e}")
+        sys.exit(1)
+
+
+def _search_model(models: list, model_name: str):
+    """Search for a model by name/ID. Returns single model or exits."""
     query_lower = model_name.lower()
     terms = query_lower.split()
 
-    # 1. Exact match on ID
     matches = [m for m in models if m.id.lower() == query_lower]
-
-    # 2. ID ends with query (e.g. "Llama-3-70B" matches "org/Llama-3-70B")
     if not matches:
         matches = [m for m in models if m.id.lower().endswith("/" + query_lower)]
-
-    # 3. All query terms appear in model ID
     if not matches:
         matches = [m for m in models if all(t in m.id.lower() for t in terms)]
 
@@ -435,35 +460,309 @@ def plan(
                 console.print(f"  • {m.id} ({p})")
         raise typer.Exit(code=1)
 
-    if len(matches) > 10:
-        console.print(
-            f"\n[yellow]{len(matches)} models match '{model_name}'. Top by downloads:[/]"
-        )
-        matches.sort(key=lambda m: m.downloads, reverse=True)
-        for m in matches[:10]:
-            p = (
-                f"{m.parameter_count / 1e9:.1f}B"
-                if m.parameter_count >= 1e9
-                else f"{m.parameter_count / 1e6:.0f}M"
-            )
-            console.print(f"  • {m.id} ({p})")
-        console.print("\n[dim]Be more specific to narrow results.[/]")
-        raise typer.Exit(code=1)
-
-    # Pick best match (most downloaded)
     matches.sort(key=lambda m: m.downloads, reverse=True)
     model = matches[0]
     if len(matches) > 1:
         console.print(f"[dim]Found {len(matches)} matches, using: {model.id}[/]")
+    return model
 
-    target_quant = quant.upper() if quant else "Q4_K_M"
 
-    if json_output:
-        display_plan_json(model, context_length, target_quant)
+def _pick_gguf_variant(model, quant_filter: str | None = None):
+    """Pick the best GGUF variant for a model."""
+    from whichllm.constants import QUANT_PREFERENCE_ORDER
+
+    if not model.gguf_variants:
+        return None
+
+    if quant_filter:
+        for v in model.gguf_variants:
+            if v.quant_type.upper() == quant_filter.upper():
+                return v
+        console.print(
+            f"[yellow]Warning:[/] {quant_filter} not available, using best match."
+        )
+
+    # Pick by preference order
+    variant_map = {v.quant_type.upper(): v for v in model.gguf_variants}
+    for qt in QUANT_PREFERENCE_ORDER:
+        if qt in variant_map:
+            return variant_map[qt]
+    return model.gguf_variants[0]
+
+
+def _resolve_model_deps(model, variant) -> tuple[list[str], str]:
+    """Determine pip dependencies and script type for a model.
+
+    Returns (deps, script_type) where script_type is 'gguf' or 'transformers'.
+    """
+    if variant:
+        return ["llama-cpp-python", "huggingface-hub"], "gguf"
+
+    from whichllm.engine.quantization import infer_non_gguf_quant_type
+
+    qt = infer_non_gguf_quant_type(model.id)
+    base = ["transformers", "torch", "accelerate"]
+    if qt == "AWQ":
+        return [*base, "autoawq"], "transformers"
+    if qt == "GPTQ":
+        return [*base, "auto-gptq"], "transformers"
+    return base, "transformers"
+
+
+def _generate_chat_script(model, variant, context_length: int, cpu_only: bool) -> str:
+    """Generate a self-contained Python chat script for any model type."""
+    if variant:
+        n_gpu = 0 if cpu_only else -1
+        return f'''\
+from huggingface_hub import hf_hub_download
+from llama_cpp import Llama
+
+print("Downloading {model.id} ({variant.quant_type})...")
+model_path = hf_hub_download(repo_id="{model.id}", filename="{variant.filename}")
+print("Loading model...")
+llm = Llama(
+    model_path=model_path,
+    n_ctx={context_length},
+    n_gpu_layers={n_gpu},
+    verbose=False,
+)
+print("Ready! Type 'exit' to quit.\\n")
+messages = []
+while True:
+    try:
+        user_input = input("> ")
+    except (KeyboardInterrupt, EOFError):
+        break
+    if user_input.strip().lower() in ("exit", "quit", "q"):
+        break
+    if not user_input.strip():
+        continue
+    messages.append({{"role": "user", "content": user_input}})
+    response = llm.create_chat_completion(messages=messages, stream=True)
+    full = ""
+    for chunk in response:
+        delta = chunk["choices"][0].get("delta", {{}})
+        content = delta.get("content", "")
+        if content:
+            print(content, end="", flush=True)
+            full += content
+    print()
+    messages.append({{"role": "assistant", "content": full}})
+print("\\nBye!")
+'''
+
+    device_map = '"cpu"' if cpu_only else '"auto"'
+    dtype = "torch.float32" if cpu_only else '"auto"'
+    return f'''\
+import torch
+from threading import Thread
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+
+model_id = "{model.id}"
+print(f"Loading {{model_id}}...")
+tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    model_id, device_map={device_map}, torch_dtype={dtype}, trust_remote_code=True,
+)
+print("Ready! Type 'exit' to quit.\\n")
+messages = []
+while True:
+    try:
+        user_input = input("> ")
+    except (KeyboardInterrupt, EOFError):
+        break
+    if user_input.strip().lower() in ("exit", "quit", "q"):
+        break
+    if not user_input.strip():
+        continue
+    messages.append({{"role": "user", "content": user_input}})
+    inputs = tokenizer.apply_chat_template(
+        messages, return_tensors="pt", add_generation_prompt=True,
+    ).to(model.device)
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+    thread = Thread(
+        target=model.generate,
+        kwargs=dict(input_ids=inputs, max_new_tokens=512, streamer=streamer),
+    )
+    thread.start()
+    full = ""
+    for text in streamer:
+        print(text, end="", flush=True)
+        full += text
+    thread.join()
+    print()
+    messages.append({{"role": "assistant", "content": full}})
+print("\\nBye!")
+'''
+
+
+@app.command()
+def run(
+    model_name: Optional[str] = typer.Argument(
+        None, help="Model to run (default: auto-pick best)"
+    ),
+    context_length: int = typer.Option(
+        4096, "--context-length", "-c", help="Context length"
+    ),
+    quant: Optional[str] = typer.Option(
+        None, "--quant", "-q", help="Quantization type"
+    ),
+    refresh: bool = typer.Option(False, "--refresh", help="Ignore cache"),
+    cpu_only: bool = typer.Option(False, "--cpu-only", help="CPU-only mode"),
+):
+    """Download and chat with a model. Picks the best one if none specified."""
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+
+    if not shutil.which("uv"):
+        console.print("[red]uv is required.[/]")
+        console.print(
+            "Install: [bold]curl -LsSf https://astral.sh/uv/install.sh | sh[/]"
+        )
+        raise typer.Exit(code=1)
+
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Loading models...", total=None)
+        models = _load_models(refresh)
+        progress.remove_task(task)
+
+    if model_name:
+        model = _search_model(models, model_name)
     else:
-        console.print()
-        display_plan(model, context_length, target_quant)
-        console.print()
+        from whichllm.engine.ranker import rank_models
+        from whichllm.hardware.detector import detect_hardware
+        from whichllm.models.benchmark import load_benchmark_cache
+        from whichllm.models.grouper import group_models
+
+        hardware = detect_hardware()
+        if cpu_only:
+            hardware.gpus = []
+        bench_scores = load_benchmark_cache() or {}
+        families = group_models(models)
+        all_models = []
+        for family in families:
+            all_models.append(family.base_model)
+            all_models.extend(family.variants)
+
+        results = rank_models(
+            all_models,
+            hardware,
+            context_length=context_length,
+            top_n=5,
+            benchmark_scores=bench_scores,
+        )
+        if not results:
+            console.print("[red]No runnable model found for your hardware.[/]")
+            raise typer.Exit(code=1)
+        model = results[0].model
+        if results[0].gguf_variant:
+            quant = quant or results[0].gguf_variant.quant_type
+
+    variant = _pick_gguf_variant(model, quant)
+    deps, script_type = _resolve_model_deps(model, variant)
+    script = _generate_chat_script(model, variant, context_length, cpu_only)
+
+    fmt = variant.quant_type if variant else script_type.upper()
+    console.print(f"\n[bold green]Running {model.id}[/] [dim]({fmt})[/]")
+    console.print(f"[dim]Setting up isolated env with: {', '.join(deps)}[/]\n")
+
+    fd, script_path = tempfile.mkstemp(suffix=".py", prefix="whichllm_run_")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(script)
+        cmd = ["uv", "run", "--no-project"]
+        for dep in deps:
+            cmd.extend(["--with", dep])
+        cmd.append(script_path)
+        result = subprocess.run(cmd)
+        raise typer.Exit(code=result.returncode)
+    finally:
+        os.unlink(script_path)
+
+
+@app.command()
+def snippet(
+    model_name: Optional[str] = typer.Argument(
+        None, help="Model to show snippet for (default: auto-pick best)"
+    ),
+    quant: Optional[str] = typer.Option(
+        None, "--quant", "-q", help="Quantization type"
+    ),
+    refresh: bool = typer.Option(False, "--refresh", help="Ignore cache"),
+):
+    """Print a ready-to-run Python script for a model."""
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+    from rich.syntax import Syntax
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Loading models...", total=None)
+        models = _load_models(refresh)
+        progress.remove_task(task)
+
+    if model_name:
+        model = _search_model(models, model_name)
+    else:
+        gguf_models = [m for m in models if m.gguf_variants]
+        if not gguf_models:
+            console.print("[red]No GGUF models found.[/]")
+            raise typer.Exit(code=1)
+        gguf_models.sort(key=lambda m: m.downloads, reverse=True)
+        model = gguf_models[0]
+
+    variant = _pick_gguf_variant(model, quant)
+    deps, _ = _resolve_model_deps(model, variant)
+
+    if variant:
+        code = f'''\
+from llama_cpp import Llama
+
+llm = Llama.from_pretrained(
+    repo_id="{model.id}",
+    filename="{variant.filename}",
+    n_ctx=4096,
+    n_gpu_layers=-1,  # -1 = all layers on GPU, 0 = CPU only
+    verbose=False,
+)
+
+output = llm.create_chat_completion(
+    messages=[{{"role": "user", "content": "Hello!"}}],
+)
+print(output["choices"][0]["message"]["content"])
+'''
+    else:
+        code = f'''\
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model_id = "{model.id}"
+tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    model_id, device_map="auto", torch_dtype="auto", trust_remote_code=True,
+)
+
+inputs = tokenizer("Hello!", return_tensors="pt").to(model.device)
+outputs = model.generate(**inputs, max_new_tokens=256)
+print(tokenizer.decode(outputs[0], skip_special_tokens=True))
+'''
+
+    dep_str = " ".join(f"--with {d}" for d in deps)
+    console.print(f"\n[bold]{model.id}[/]")
+    console.print(f"[dim]# Run directly:[/]  whichllm run '{model.id}'")
+    console.print(f"[dim]# Or manually:[/]   uv run --no-project {dep_str} script.py\n")
+    console.print(Syntax(code, "python", theme="monokai"))
 
 
 @app.command()
