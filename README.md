@@ -111,6 +111,7 @@ git clone https://github.com/Andyyyy64/whichllm.git
 cd whichllm
 uv sync --dev
 uv run whichllm
+uv run pytest
 ```
 
 ## Usage
@@ -200,39 +201,59 @@ Score markers:
 
 ### Data pipeline
 
-1. Fetches ~900 popular models from **HuggingFace API** (text-generation, GGUF, multimodal)
-2. Fetches benchmark scores from **Chatbot Arena ELO** and **Open LLM Leaderboard**, normalized to 0-100
-3. All data cached for 24 hours at `~/.cache/whichllm/`
+1. **Model fetching** — Fetches popular models from HuggingFace API:
+   - Text-generation (downloads + recently updated)
+   - GGUF-filtered (separate query for coverage)
+   - Vision models (`image-text-to-text`) when `--profile vision` or `any`
+2. **Benchmark sources** — Chatbot Arena ELO (priority) + Open LLM Leaderboard
+3. **Benchmark evidence** — Four levels of confidence:
+   - `direct` — Exact model ID match
+   - `variant` — Suffix-stripped or -Instruct variant
+   - `base_model` — Base model from cardData
+   - `line_interp` — Size-aware interpolation within model family
+4. **Cache** — `~/.cache/whichllm/`:
+   - `models.json` — 6h TTL
+   - `benchmark.json` — 24h TTL
 
 ### Ranking engine
 
-1. **Hardware detection** — GPU (NVIDIA/AMD/Apple Silicon), CPU, RAM, disk
-2. **VRAM estimation** — model size + quantization + KV cache overhead
-3. **Compatibility check** — Full GPU / Partial Offload / CPU-only classification
-4. **Speed estimation** — tok/s based on GPU memory bandwidth
-5. **Scoring** — combines size, benchmark, speed, source trust, and popularity
-6. **Deduplication** — merges GGUF variants and version differences into model families
+1. **Hardware detection** — NVIDIA (nvidia-ml-py), AMD (dbgpu/ROCm), Apple Silicon (Metal), CPU cores, RAM, disk
+2. **VRAM estimation** — Weights + KV cache + activation + framework overhead (~500MB)
+3. **Compatibility** — Full GPU / Partial Offload / CPU-only; compute capability and OS checks
+4. **Speed** — tok/s from GPU memory bandwidth lookup (constants.py)
+5. **Scoring** — Benchmark (with confidence dampening), size, quantization penalty, fit type, speed, popularity, source trust (official vs repackager)
+6. **Backend filter** — Apple Silicon and CPU-only restrict to GGUF for stability; Linux+NVIDIA allows AWQ/GPTQ
 
 ### Project structure
 
 ```
 src/whichllm/
-├── cli.py              # Typer CLI entry point
-├── constants.py        # GPU bandwidth tables, quantization constants
-├── hardware/           # Hardware detection (NVIDIA, AMD, Apple, CPU, RAM)
-│   └── gpu_simulator.py  # GPU simulation for --gpu flag
+├── cli.py              # Typer CLI: main, plan, run, snippet, hardware
+├── constants.py        # GPU bandwidth, quantization bytes, compute capability
+├── hardware/
+│   ├── detector.py     # Orchestrates GPU/CPU/RAM detection
+│   ├── nvidia.py       # NVIDIA GPU via nvidia-ml-py
+│   ├── amd.py          # AMD GPU (Linux)
+│   ├── apple.py        # Apple Silicon (Metal)
+│   ├── cpu.py          # CPU name, cores, AVX support
+│   ├── memory.py       # RAM and disk free
+│   ├── gpu_simulator.py # --gpu flag: synthetic GPU from name
+│   └── types.py        # GPUInfo, HardwareInfo
 ├── models/
-│   ├── fetcher.py      # HuggingFace API model fetcher
-│   ├── benchmark.py    # Benchmark scores (Arena + Leaderboard)
-│   ├── grouper.py      # Model family grouping and dedup
-│   └── cache.py        # JSON cache
+│   ├── fetcher.py      # HuggingFace API, model parsing, evalResults
+│   ├── benchmark.py    # Arena ELO, Leaderboard (parquet/rows API)
+│   ├── grouper.py      # Family grouping by base_model and name
+│   ├── cache.py        # JSON cache with TTL
+│   └── types.py        # ModelInfo, GGUFVariant, ModelFamily
 ├── engine/
-│   ├── vram.py         # VRAM requirement estimation
-│   ├── compatibility.py # Hardware compatibility check
-│   ├── performance.py  # Inference speed estimation
-│   └── ranker.py       # Scoring and ranking
+│   ├── vram.py         # VRAM = weights + KV cache + activation + overhead
+│   ├── compatibility.py# Fit type, disk check, compute/OS warnings
+│   ├── performance.py  # tok/s from bandwidth
+│   ├── quantization.py # Bytes per weight, quality penalty, non-GGUF inference
+│   ├── ranker.py       # Scoring, evidence filter, profile/match
+│   └── types.py        # CompatibilityResult
 └── output/
-    └── display.py      # Rich table output
+    └── display.py      # Rich table, JSON output, hardware/plan displays
 ```
 
 ## Contributing
